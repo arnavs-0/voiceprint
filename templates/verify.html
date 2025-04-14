@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Verification</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md mt-12">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Voice Verification</h1>
+        
+        <div class="text-center mt-6">
+            <p id="instructions">Continuous voice verification is active. Speak naturally.</p>
+            <div id="timer" class="text-5xl font-bold text-blue-500 my-5 hidden">3</div>
+            
+            <div class="flex flex-col items-center my-4">
+                <button id="toggleVerification" class="bg-blue-500 hover:bg-blue-600 text-white px-8 py-3 rounded-md text-lg transition">Pause Verification</button>
+                <div id="verificationStatus" class="mt-2 px-3 py-1 rounded-md bg-green-50 text-green-600 font-medium">Verification Active</div>
+            </div>
+            
+            <div id="recordingStatus" class="italic mt-3"></div>
+            
+            <div id="command-section" class="mt-6 p-5 bg-gray-50 rounded-lg border-l-4 border-blue-500 hidden">
+                <h3 class="text-xl font-bold text-blue-600 mb-2">Command Mode</h3>
+                <p>You are verified. Please speak your command:</p>
+                <div class="min-h-[100px] p-4 my-4 bg-white rounded border border-gray-200 text-left">
+                    <p id="recognized-text" class="text-gray-700 italic">[Waiting for command...]</p>
+                </div>
+                <button id="returnToVerify" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition mb-2">Return to Verification</button>
+            </div>
+            
+            <div id="verification-history" class="mt-8 max-h-[400px] overflow-y-auto">
+                <h3 class="text-xl font-bold mb-3">Verification Attempts</h3>
+                <div id="attempts-container"></div>
+            </div>
+        </div>
+        
+        <div class="flex justify-center mt-8">
+            <a href="/" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">Back to Home</a>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const toggleBtn = document.getElementById('toggleVerification');
+            const verificationStatus = document.getElementById('verificationStatus');
+            const timer = document.getElementById('timer');
+            const status = document.getElementById('recordingStatus');
+            const attemptsContainer = document.getElementById('attempts-container');
+            const commandSection = document.getElementById('command-section');
+            const recognizedText = document.getElementById('recognized-text');
+            const returnToVerifyBtn = document.getElementById('returnToVerify');
+            const instructions = document.getElementById('instructions');
+            
+            let mediaRecorder = null;
+            let audioChunks = [];
+            let attemptCount = 0;
+            let isRecording = false;
+            let continuousMode = true;
+            let stream = null;
+            let verificationCooldown = false;
+            let commandMode = false;
+            let recognitionActive = false;
+            
+            // lowk did not excpect this to work but we'd replace this with whisper
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            let recognition = null;
+            
+            if (SpeechRecognition) {
+                recognition = new SpeechRecognition();
+                recognition.continuous = false;
+                recognition.lang = 'en-US';
+                recognition.interimResults = false;
+                
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    recognizedText.textContent = transcript;
+                    recognitionActive = false;
+                };
+                
+                recognition.onend = () => {
+                    if (commandMode && recognitionActive) {
+                        setTimeout(() => {
+                            if (commandMode) {
+                                startCommandRecognition();
+                            }
+                        }, 1000);
+                    }
+                };
+                
+                recognition.onerror = (event) => {
+                    console.error("Speech recognition error", event.error);
+                    if (commandMode) {
+                        recognizedText.textContent = `[Error: ${event.error}. Try again...]`;
+                        recognitionActive = false;
+                        setTimeout(() => {
+                            if (commandMode) {
+                                startCommandRecognition();
+                            }
+                        }, 2000);
+                    }
+                };
+            } else {
+                console.error("Speech recognition not supported in this browser");
+            }
+            
+            function startCommandRecognition() {
+                if (!recognition) return;
+                
+                try {
+                    recognition.start();
+                    recognitionActive = true;
+                    recognizedText.textContent = "[Listening for command...]";
+                } catch (err) {
+                    console.error("Failed to start recognition:", err);
+                    setTimeout(startCommandRecognition, 1000);
+                }
+            }
+            
+            function enterCommandMode(userName) {
+                commandMode = true;
+                continuousMode = false;
+                commandSection.classList.remove('hidden');
+                
+                verificationStatus.parentNode.classList.add('hidden');
+                timer.classList.add('hidden');
+                status.textContent = "";
+                
+                instructions.textContent = `Welcome, ${userName}! speak commands.`;
+                
+                startCommandRecognition();
+            }
+            
+            returnToVerifyBtn.addEventListener('click', () => {
+                commandMode = false;
+                commandSection.classList.add('hidden');
+                verificationStatus.parentNode.classList.remove('hidden');
+                
+                if (recognition && recognitionActive) {
+                    recognition.stop();
+                    recognitionActive = false;
+                }
+                
+                instructions.textContent = "Voice verification is active.";
+                
+                continuousMode = true;
+                if (!isRecording && !verificationCooldown) {
+                    startVerificationProcess();
+                }
+            });
+            
+            function resetRecordingUI() {
+                timer.textContent = "3";
+                timer.classList.add('hidden');
+                status.textContent = "";
+                isRecording = false;
+            }
+            
+            function addAttemptToHistory(attemptNumber, success, user = null, spoofingStatus = null, authScore = null, watermarkDetected = false) {
+                const attemptDiv = document.createElement('div');
+                
+                let statusClass = '';
+                let statusMessage = '';
+                
+                if (watermarkDetected) {
+                    // Replay attack detected
+                    statusClass = 'bg-yellow-50 border-l-4 border-yellow-500';
+                    statusMessage = '<p class="text-yellow-600 font-bold">Potential Replay Attack Detected!</p>';
+                } else if (watermarkDetected) {
+                    // Spoof check failed
+                    statusClass = 'bg-yellow-50 border-l-4 border-yellow-500';
+                    statusMessage = '<p class="text-yellow-600 font-bold">Liveness Check Failed!</p>';
+                } else if (success) {
+                    // Successful authentication
+                    statusClass = 'bg-green-50 border-l-4 border-green-500';
+                    statusMessage = '<p class="text-green-600 font-bold">Authentication Successful!</p>';
+                } else {
+                    // Failed authentication
+                    statusClass = 'bg-red-50 border-l-4 border-red-500';
+                    statusMessage = '<p class="text-red-600 font-bold">Authentication Failed!</p>';
+                }
+                
+                attemptDiv.className = `p-4 mb-4 rounded-md shadow-sm ${statusClass}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                
+                let spoofingDetails = '';
+                if (spoofingStatus) {
+                    spoofingDetails = `
+                        <div class="mt-2 text-sm">
+                            ${watermarkDetected ? 
+                             '<p><span class="text-yellow-600 font-bold">Watermark detected</span> </p>' : ''}
+                        </div>
+                    `;
+                }
+                
+                let scoreDetails = '';
+                if (authScore !== null) {
+                    scoreDetails = `<p class="mt-2 text-sm">Authentication Score: <span class="font-bold">${authScore.toFixed(2)}</span></p>`;
+                }
+                
+                if (success) {
+                    attemptDiv.innerHTML = `
+                        <div class="flex justify-between text-sm mb-2 text-gray-600">
+                            <span class="font-bold">Attempt #${attemptNumber}</span>
+                            <span class="italic">${timestamp}</span>
+                        </div>
+                        ${statusMessage}
+                        <p>Matched User: ${user}</p>
+                        ${spoofingDetails}
+                        ${scoreDetails}
+                    `;
+                    
+                    if (!watermarkDetected) {
+                        enterCommandMode(user);
+                    }
+                } else {
+                    attemptDiv.innerHTML = `
+                        <div class="flex justify-between text-sm mb-2 text-gray-600">
+                            <span class="font-bold">Attempt #${attemptNumber}</span>
+                            <span class="italic">${timestamp}</span>
+                        </div>
+                        ${statusMessage}
+                        <p>${watermarkDetected ? 'Replay attack detected' : (spoofingStatus ? 'Security check failed' : 'Voice not recognized')}</p>
+                        ${spoofingDetails}
+                        ${scoreDetails}
+                    `;
+                }
+                
+                attemptsContainer.insertBefore(attemptDiv, attemptsContainer.firstChild);
+                
+                if (attemptsContainer.children.length > 8) {
+                    attemptsContainer.removeChild(attemptsContainer.lastChild);
+                }
+            }
+            
+            toggleBtn.addEventListener('click', () => {
+                continuousMode = !continuousMode;
+                
+                if (continuousMode) {
+                    toggleBtn.textContent = "Pause Verification";
+                    verificationStatus.textContent = "Verification Active";
+                    verificationStatus.classList.add('active');
+                    if (!isRecording && !verificationCooldown) {
+                        startVerificationProcess();
+                    }
+                } else {
+                    toggleBtn.textContent = "Resume Verification";
+                    verificationStatus.textContent = "Verification Paused";
+                    verificationStatus.classList.remove('active');
+                    if (isRecording && mediaRecorder && mediaRecorder.state === "recording") {
+                        mediaRecorder.stop();
+                        if (stream) {
+                            stream.getTracks().forEach(track => track.stop());
+                            stream = null;
+                        }
+                    }
+                }
+            });
+            
+            async function startVerificationProcess() {
+                if (!continuousMode || isRecording || verificationCooldown || commandMode) return;
+                
+                try {
+                    isRecording = true;
+                    attemptCount++;
+                    audioChunks = [];
+                    
+                    stream = await navigator.mediaDevices.getUserMedia({ 
+                        audio: {
+                            sampleRate: 16000,
+                            channelCount: 1,
+                            echoCancellation: true,
+                            noiseSuppression: true
+                        }
+                    });
+                    
+                    timer.classList.remove('hidden');
+                    status.textContent = "Listening...";
+                    
+                    mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+                    
+                    mediaRecorder.ondataavailable = (event) => {
+                        audioChunks.push(event.data);
+                    };
+                    
+                    mediaRecorder.onstop = async () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const reader = new FileReader();
+                        
+                        reader.onload = async (e) => {
+                            const base64data = e.target.result;
+                            
+                            try {
+                                status.textContent = "Verifying...";
+                                const response = await fetch('/verify', {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/x-www-form-urlencoded',
+                                    },
+                                    body: `audio=${encodeURIComponent(base64data)}`
+                                });
+                                
+                                const data = await response.json();
+                                
+                                addAttemptToHistory(
+                                    attemptCount, 
+                                    data.authenticated, 
+                                    data.user,
+                                    data.spoofing_status,
+                                    data.auth_score,
+                                    data.watermark_detected
+                                );
+                                
+                                resetRecordingUI();
+                                
+                                if (!data.authenticated && !commandMode) {
+                                    verificationCooldown = true;
+                                    setTimeout(() => {
+                                        verificationCooldown = false;
+                                        if (continuousMode && !commandMode) {
+                                            startVerificationProcess();
+                                        }
+                                    }, 1000);
+                                }
+                                
+                            } catch (err) {
+                                status.textContent = "Error: " + err.message;
+                                console.error("Verification error:", err);
+                                resetRecordingUI();
+                                
+                                verificationCooldown = true;
+                                setTimeout(() => {
+                                    verificationCooldown = false;
+                                    if (continuousMode && !commandMode) {
+                                        startVerificationProcess();
+                                    }
+                                }, 2000);
+                            }
+                        };
+                        
+                        reader.readAsDataURL(audioBlob);
+                    };
+                    
+                    mediaRecorder.start();
+                    
+                    let seconds = 3;
+                    timer.textContent = seconds;
+                    const countInterval = setInterval(() => {
+                        seconds--;
+                        timer.textContent = seconds;
+                        
+                        if (seconds <= 0) {
+                            clearInterval(countInterval);
+                            if (mediaRecorder && mediaRecorder.state === "recording") {
+                                mediaRecorder.stop();
+                            }
+                            status.textContent = "Processing...";
+                            
+                            if (stream) {
+                                stream.getTracks().forEach(track => track.stop());
+                                stream = null;
+                            }
+                        }
+                    }, 1000);
+                    
+                } catch (err) {
+                    console.error("Microphone error:", err);
+                    status.textContent = "Error: Could not access microphone";
+                    resetRecordingUI();
+                    
+                    verificationCooldown = true;
+                    setTimeout(() => {
+                        verificationCooldown = false;
+                        if (continuousMode && !commandMode) {
+                            startVerificationProcess();
+                        }
+                    }, 3000);
+                }
+            }
+            
+            setTimeout(() => {
+                startVerificationProcess();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

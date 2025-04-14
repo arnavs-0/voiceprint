@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Enrolled Users</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md mt-12">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Enrolled Users</h1>
+        
+        <div id="status-message" class="p-3 rounded-md text-center mb-5 hidden"></div>
+        
+        <div class="mb-4 flex justify-between items-center">
+            <div class="flex items-center space-x-6">
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 text-blue-600">
+                        <i data-feather="database"></i>
+                    </div>
+                    <span class="text-sm text-gray-600">Cache (Embeddings)</span>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <div class="w-4 h-4 text-purple-600">
+                        <i data-feather="cloud"></i>
+                    </div>
+                    <span class="text-sm text-gray-600">Cloud (WAV Files)</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="users-list">
+            {% if users %}
+                <div class="overflow-x-auto">
+                    <table class="min-w-full">
+                        <thead class="bg-gray-100">
+                            <tr>
+                                <th class="py-3 px-4 text-left">Storage</th>
+                                <th class="py-3 px-4 text-left">Name</th>
+                                <th class="py-3 px-4 text-left">Last Used</th>
+                                <th class="py-3 px-4 text-left">Embedding Size</th>
+                                <th class="py-3 px-4 text-left">WAV Size</th>
+                                <th class="py-3 px-4 text-left">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for user in users %}
+                            <tr id="user-row-{{ user.id }}" class="border-b border-gray-200">
+                                <td class="py-3 px-4">
+                                    {% if user.storage_type == "cache" %}
+                                        <div class="w-5 h-5 text-blue-600" title="Stored in cache (fast access)">
+                                            <i data-feather="database"></i>
+                                        </div>
+                                    {% else %}
+                                        <div class="w-5 h-5 text-purple-600" title="Stored in cloud (WAV file)">
+                                            <i data-feather="cloud"></i>
+                                        </div>
+                                    {% endif %}
+                                </td>
+                                <td class="py-3 px-4">
+                                    {{ user.name }}
+                                    {% if user.storage_type == "cloud" %}
+                                    <span class="ml-1 text-xs text-purple-600">(Audio File)</span>
+                                    {% endif %}
+                                </td>
+                                <td class="py-3 px-4">{{ user.last_used }}</td>
+                                <td class="py-3 px-4">
+                                    <span class="{% if user.storage_type == 'cache' %}text-blue-600 font-medium{% else %}text-gray-400 italic{% endif %}"
+                                          title="{% if user.storage_type == 'cache' %}Size of the neural embedding vector stored in memory{% else %}No embedding in cache{% endif %}">
+                                        {{ user.embedding_size }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <span class="{% if user.wav_size != 'N/A' %}text-purple-600 font-medium{% else %}text-gray-400 italic{% endif %}"
+                                          title="{% if user.wav_file %}Audio file: {{ user.wav_file }}{% else %}No WAV file found{% endif %}">
+                                        {{ user.wav_size }}
+                                    </span>
+                                </td>
+                                <td class="py-3 px-4">
+                                    <button class="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded text-sm transition delete-user-btn"
+                                            data-user-id="{{ user.id }}" 
+                                            data-user-name="{{ user.name }}"
+                                            {% if user.wav_file %}
+                                            data-wav-file="{{ user.wav_file }}"
+                                            {% endif %}>
+                                        Delete
+                                    </button>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            {% else %}
+                <p class="text-center py-4">No users enrolled yet.</p>
+            {% endif %}
+        </div>
+        
+        <div class="flex justify-center gap-4 mt-8">
+            <a href="/" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">Back to Home</a>
+            <a href="{{ url_for('enroll') }}" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">Enroll New User</a>
+        </div>
+    </div>
+    
+    <div id="deleteModal" class="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50 hidden">
+        <div class="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full">
+            <h3 class="text-xl font-bold text-red-600 mb-4">Confirm Deletion</h3>
+            <p>Are you sure you want to delete user <span id="deleteUserName" class="font-bold"></span>?</p>
+            <p class="mt-2">This action cannot be undone.</p>
+            <div class="flex justify-end gap-4 mt-6">
+                <button id="confirmDeleteBtn" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded transition">Delete</button>
+                <button id="cancelDeleteBtn" class="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded transition">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            feather.replace();
+            
+            let userToDelete = null;
+            let wavFileToDelete = null;
+            const modal = document.getElementById('deleteModal');
+            const statusMsg = document.getElementById('status-message');
+            const deleteButtons = document.querySelectorAll('.delete-user-btn');
+            
+            deleteButtons.forEach(button => {
+                button.addEventListener('click', function() {
+                    const userId = this.getAttribute('data-user-id');
+                    const userName = this.getAttribute('data-user-name');
+                    wavFileToDelete = this.getAttribute('data-wav-file') || null;
+                    confirmDelete(userId, userName);
+                });
+            });
+            
+            function confirmDelete(userId, userName) {
+                userToDelete = userId;
+                document.getElementById('deleteUserName').textContent = userName;
+                modal.classList.remove('hidden');
+            }
+            
+            document.getElementById('confirmDeleteBtn').addEventListener('click', async () => {
+                if (!userToDelete) return;
+                
+                try {
+                    const formData = new FormData();
+                    formData.append('user_id', userToDelete);
+                    if (wavFileToDelete) {
+                        formData.append('wav_file', wavFileToDelete);
+                    }
+                    
+                    const response = await fetch('/delete_user', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    
+                    const data = await response.json();
+                    
+                    if (data.success) {
+                        const row = document.getElementById(`user-row-${userToDelete}`);
+                        if (row) row.remove();
+                        
+                        statusMsg.textContent = `User deleted successfully`;
+                        statusMsg.classList.remove('hidden');
+                        statusMsg.classList.remove('bg-red-100', 'border-red-500', 'text-red-700');
+                        statusMsg.classList.add('bg-green-100', 'border', 'border-green-500', 'text-green-700');
+                        
+                        const tbody = document.querySelector('table tbody');
+                        if (tbody && tbody.children.length === 0) {
+                            const table = document.querySelector('table');
+                            const parent = table.parentNode;
+                            table.remove();
+                            const emptyMsg = document.createElement('p');
+                            emptyMsg.className = 'text-center py-4';
+                            emptyMsg.textContent = 'No users enrolled yet.';
+                            parent.appendChild(emptyMsg);
+                        }
+                    } else {
+                        throw new Error(data.message || 'Failed to delete user');
+                    }
+                } catch (err) {
+                    console.error("Error deleting user:", err);
+                    statusMsg.textContent = `Error: ${err.message}`;
+                    statusMsg.classList.remove('hidden');
+                    statusMsg.classList.remove('bg-green-100', 'border-green-500', 'text-green-700');
+                    statusMsg.classList.add('bg-red-100', 'border', 'border-red-500', 'text-red-700');
+                }
+                
+                modal.classList.add('hidden');
+                userToDelete = null;
+                wavFileToDelete = null;
+                
+                setTimeout(() => {
+                    statusMsg.classList.add('hidden');
+                }, 5000);
+            });
+            
+            document.getElementById('cancelDeleteBtn').addEventListener('click', () => {
+                modal.classList.add('hidden');
+                userToDelete = null;
+                wavFileToDelete = null;
+            });
+            
+            window.onclick = function(event) {
+                if (event.target === modal) {
+                    modal.classList.add('hidden');
+                    userToDelete = null;
+                    wavFileToDelete = null;
+                }
+            };
+        });
+    </script>
+</body>
+</html>

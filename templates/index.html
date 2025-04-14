@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Voice Authentication System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/feather-icons"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="max-w-2xl mx-auto p-6 bg-white rounded-lg shadow-md mt-12">
+        <h1 class="text-3xl font-bold text-center mb-6 text-gray-800">Voice Authentication System</h1>
+        
+        <div class="bg-gray-50 p-4 rounded-md mb-6">
+            <h2 class="text-xl font-medium mb-3 text-gray-700">Enrolled Users</h2>
+            
+            <div class="grid grid-cols-3 gap-4 text-center">
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                    <div class="text-3xl font-bold text-gray-800">{{ num_users }}</div>
+                    <div class="text-sm text-gray-500 mt-1">Total Users</div>
+                </div>
+                
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                    <div class="flex justify-center mb-1">
+                        <div class="w-5 h-5 text-blue-600">
+                            <i data-feather="database"></i>
+                        </div>
+                    </div>
+                    <div class="text-3xl font-bold text-blue-600">{{ cache_users }}</div>
+                    <div class="text-sm text-gray-500 mt-1">In Cache</div>
+                </div>
+                
+                <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100">
+                    <div class="flex justify-center mb-1">
+                        <div class="w-5 h-5 text-purple-600">
+                            <i data-feather="cloud"></i>
+                        </div>
+                    </div>
+                    <div class="text-3xl font-bold text-purple-600">{{ cloud_users }}</div>
+                    <div class="text-sm text-gray-500 mt-1">In Cloud</div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="flex justify-around mt-8">
+            <a href="{{ url_for('enroll') }}" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">Enroll New User</a>
+            <a href="{{ url_for('verify') }}" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">Verify Voice</a>
+            <a href="{{ url_for('users') }}" class="bg-blue-500 hover:bg-blue-600 text-white px-6 py-2 rounded-md transition">View Users</a>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            feather.replace();
+        });
+    </script>
+</body>
+</html>
