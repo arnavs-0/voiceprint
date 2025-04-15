@@ -111,7 +111,8 @@ def verify():
                 convert_audio_data(audio_bytes, command_file, target_sample_rate=model.SAMPLE_RATE)
                 
                 sample_rate, audio = model.wav.read(command_file)
-                watermark_detected = bool(model.detect_watermark(audio, sample_rate))
+                watermark_detected = False
+                # watermark_detected = bool(model.detect_watermark(audio, sample_rate))
                 
                 command_embedding = model.get_embedding(command_file)
                 authenticated = False

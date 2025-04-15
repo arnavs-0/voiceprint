@@ -127,9 +127,9 @@ def verify_speaker():
     record_audio(command_file)
     
     sample_rate, audio_data = wav.read(command_file)
-    if detect_watermark(audio_data, sample_rate):
-        print("Warning: Watermark detected. Possible replay attack!")
-        return False
+    # if detect_watermark(audio_data, sample_rate):
+    #     print("Warning: Watermark detected. Possible replay attack!")
+    #     return False
     
     command_embedding = get_embedding(command_file)
     for user_id, data in speaker_db.items():
@@ -150,7 +150,7 @@ def enroll_speaker(num):
     filename = f"enrolled_user_{num}.wav"
     print("Enrolling user ...")
 
-    record_audio(filename, with_watermark=True)
+    record_audio(filename, with_watermark=False)
 
     sample_rate, audio_data = wav.read(filename)
     
